@@ -1,0 +1,19 @@
+Geany Sidebar Terminal
+
+This is a very simple plugin for Geany fast and lightweight IDE to move the
+Terminal (VTE) from the bottom message window to the sidebar.
+
+The reason I wrote this was because I found myself always having a separate
+terminal window open directly to the right of Geany, stretched to the same
+height as the Geany window.  Since most of my code wraps at or around 80
+characters, and having a widescreen display, this works out quite well.
+
+After activating the plugin, the Terminal tab moves into the sidebar.  If you
+prefer to have the terminal to the right side as I do, move the sidebar position
+to the right side in the Geany Interface Preferences tab in the Preferences
+dialog.
+
+When the plugin is de-activated, the Terminal tab is moved back into the 
+message window.
+
+Check out the sidebarterm_screenshot.png file to see what this looks like.

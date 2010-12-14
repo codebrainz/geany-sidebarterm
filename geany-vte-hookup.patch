@@ -1,0 +1,10 @@
+--- vte.c	2010-12-03 18:37:55.000000000 -0800
++++ vte-new.c	2010-12-14 00:47:33.980019383 -0800
+@@ -241,6 +241,7 @@
+ 	GTK_WIDGET_UNSET_FLAGS(scrollbar, GTK_CAN_FOCUS);
+ 
+ 	frame = gtk_frame_new(NULL);
++	ui_hookup_widget(main_widgets.window, frame, "vte_frame");
+ 
+ 	hbox = gtk_hbox_new(FALSE, 0);
+ 	gtk_container_add(GTK_CONTAINER(frame), hbox);
