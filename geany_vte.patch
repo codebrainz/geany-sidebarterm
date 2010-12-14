@@ -1,0 +1,157 @@
+diff -rupN geany-svn/src/keyfile.c geany-vte/src/keyfile.c
+--- geany-svn/src/keyfile.c	2010-12-14 02:27:25.556686074 -0800
++++ geany-vte/src/keyfile.c	2010-12-14 02:23:42.816686071 -0800
+@@ -479,6 +479,7 @@ static void save_dialog_prefs(GKeyFile *
+ 		g_free(tmp_string);
+ 		vte_get_working_directory();	/* refresh vte_info.dir */
+ 		g_key_file_set_string(config, "VTE", "last_dir", vte_info.dir);
++        g_key_file_set_boolean(config, "VTE", "in_message_window", vc->in_message_window);
+ 	}
+ #endif
+ }
+@@ -782,6 +783,7 @@ static void load_dialog_prefs(GKeyFile *
+ 		tmp_string = utils_get_setting_string(config, "VTE", "colour_back", "#000000");
+ 		gdk_color_parse(tmp_string, vc->colour_back);
+ 		g_free(tmp_string);
++        vc->in_message_window = utils_get_setting_integer(config, "VTE", "in_message_window", TRUE);
+ 	}
+ #endif
+ 	/* templates */
+diff -rupN geany-svn/src/prefs.c geany-vte/src/prefs.c
+--- geany-svn/src/prefs.c	2010-12-14 02:27:25.546686069 -0800
++++ geany-vte/src/prefs.c	2010-12-14 02:19:41.936686072 -0800
+@@ -739,6 +739,9 @@ static void prefs_init_dialog(void)
+ 
+ 		widget = ui_lookup_widget(ui_widgets.prefs_dialog, "check_cursor_blinks");
+ 		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widget), vc->cursor_blinks);
++        
++        widget = ui_lookup_widget(ui_widgets.prefs_dialog, "radio_vte_message_window");
++        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widget), vc->in_message_window);
+ 	}
+ #endif
+ }
+@@ -1186,6 +1189,9 @@ on_prefs_dialog_response(GtkDialog *dial
+ 
+ 			widget = ui_lookup_widget(ui_widgets.prefs_dialog, "check_cursor_blinks");
+ 			vc->cursor_blinks = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget));
++            
++            widget = ui_lookup_widget(ui_widgets.prefs_dialog, "radio_vte_message_window");
++            vc->in_message_window = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget));
+ 
+ 			vte_apply_user_settings();
+ 		}
+diff -rupN geany-svn/src/vte.c geany-vte/src/vte.c
+--- geany-svn/src/vte.c	2010-12-14 02:27:25.560019403 -0800
++++ geany-vte/src/vte.c	2010-12-14 01:54:42.120019400 -0800
+@@ -239,8 +239,9 @@ static void create_vte(void)
+ 	vc->vte = vte = vf->vte_terminal_new();
+ 	scrollbar = gtk_vscrollbar_new(GTK_ADJUSTMENT(VTE_TERMINAL(vte)->adjustment));
+ 	GTK_WIDGET_UNSET_FLAGS(scrollbar, GTK_CAN_FOCUS);
+-
++    
+ 	frame = gtk_frame_new(NULL);
++    ui_hookup_widget(main_widgets.window, frame, "vte_frame");
+ 
+ 	hbox = gtk_hbox_new(FALSE, 0);
+ 	gtk_container_add(GTK_CONTAINER(frame), hbox);
+@@ -726,6 +727,36 @@ static void on_color_button_choose_cb(Gt
+ 	}
+ }
+ 
++static void on_vte_location_radio_toggled(GtkToggleButton *btn, gpointer user_data)
++{
++	GtkWidget *vte_frame, *vte_tab_label;
++	GtkNotebook *current_notebook, *new_notebook; 
++	
++	vte_frame = ui_lookup_widget(main_widgets.window, "vte_frame");
++	if (G_UNLIKELY(vte_frame == NULL))
++		return;
++
++	current_notebook = GTK_NOTEBOOK(gtk_widget_get_parent(vte_frame));
++	
++	if (!gtk_toggle_button_get_active(btn))
++		new_notebook = GTK_NOTEBOOK(main_widgets.sidebar_notebook);
++	else
++		new_notebook = GTK_NOTEBOOK(main_widgets.message_window_notebook);
++	
++	vte_tab_label = gtk_notebook_get_tab_label(current_notebook, vte_frame);
++	
++	g_object_ref(vte_tab_label);
++	
++	gtk_widget_reparent(vte_frame, GTK_WIDGET(new_notebook));
++	
++	gtk_notebook_set_tab_label(new_notebook, vte_frame, vte_tab_label);
++	
++	g_object_unref(vte_tab_label);
++	
++	/* is this desirable? */
++	gtk_notebook_set_current_page(new_notebook, -1);
++	
++}
+ 
+ void vte_append_preferences_tab(void)
+ {
+@@ -736,6 +767,7 @@ void vte_append_preferences_tab(void)
+ 		GtkWidget *check_scroll_key, *check_scroll_out, *check_follow_path;
+ 		GtkWidget *check_enable_bash_keys, *check_ignore_menu_key, *check_cursor_blinks;
+ 		GtkWidget *check_run_in_vte, *check_skip_script, *entry_shell, *button_shell, *image_shell;
++		GtkWidget *radio_vte_message_window, *radio_vte_sidebar;
+ 		GtkObject *spin_scrollback_adj;
+ 
+ 		notebook = ui_lookup_widget(ui_widgets.prefs_dialog, "notebook2");
+@@ -748,7 +780,7 @@ void vte_append_preferences_tab(void)
+ 		label = gtk_label_new(_("Terminal"));
+ 		vte_prefs_tab_num = gtk_notebook_append_page(GTK_NOTEBOOK(notebook), frame, label);
+ 
+-		table = gtk_table_new(6, 2, FALSE);
++		table = gtk_table_new(7, 2, FALSE);
+ 		gtk_box_pack_start(GTK_BOX(vbox), table, FALSE, FALSE, 0);
+ 		gtk_table_set_row_spacings(GTK_TABLE(table), 3);
+ 		gtk_table_set_col_spacings(GTK_TABLE(table), 10);
+@@ -830,6 +862,26 @@ void vte_append_preferences_tab(void)
+ 		image_shell = gtk_image_new_from_stock("gtk-open", GTK_ICON_SIZE_BUTTON);
+ 		gtk_widget_show(image_shell);
+ 		gtk_container_add(GTK_CONTAINER(button_shell), image_shell);
++		
++		label = gtk_label_new(_("Location:"));
++		gtk_table_attach(GTK_TABLE(table), label, 0, 1, 6, 7,
++			(GtkAttachOptions) (GTK_FILL),
++			(GtkAttachOptions) (0), 0, 0);
++		gtk_misc_set_alignment(GTK_MISC(label), 0, 0.5);
++		
++		box = gtk_hbox_new(FALSE, 6);
++		radio_vte_message_window = gtk_radio_button_new_with_label(NULL, _("Message window"));
++		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(radio_vte_message_window), TRUE);
++		radio_vte_sidebar = gtk_radio_button_new_with_label(
++							gtk_radio_button_get_group(GTK_RADIO_BUTTON(radio_vte_message_window)), 
++							_("Sidebar"));
++		gtk_box_pack_start(GTK_BOX(box), radio_vte_message_window, FALSE, FALSE, 0);
++		gtk_box_pack_start(GTK_BOX(box), radio_vte_sidebar, FALSE, FALSE, 0);
++		gtk_table_attach(GTK_TABLE(table), box, 1, 2, 6, 7,
++				(GtkAttachOptions) (GTK_FILL),
++				(GtkAttachOptions) (0), 0, 0);
++		g_signal_connect(radio_vte_message_window, "toggled", 
++			G_CALLBACK(on_vte_location_radio_toggled), NULL);
+ 
+ 		box = gtk_vbox_new(FALSE, 3);
+ 		check_scroll_key = gtk_check_button_new_with_mnemonic(_("Scroll on keystroke"));
+@@ -887,6 +939,8 @@ void vte_append_preferences_tab(void)
+ 		ui_hookup_widget(ui_widgets.prefs_dialog, check_follow_path, "check_follow_path");
+ 		ui_hookup_widget(ui_widgets.prefs_dialog, check_run_in_vte, "check_run_in_vte");
+ 		ui_hookup_widget(ui_widgets.prefs_dialog, check_skip_script, "check_skip_script");
++		ui_hookup_widget(ui_widgets.prefs_dialog, radio_vte_message_window, "radio_vte_message_window");
++		ui_hookup_widget(ui_widgets.prefs_dialog, radio_vte_sidebar, "radio_vte_sidebar");
+ 
+ 		gtk_widget_show_all(frame);
+ 
+diff -rupN geany-svn/src/vte.h geany-vte/src/vte.h
+--- geany-svn/src/vte.h	2010-12-14 02:27:25.560019403 -0800
++++ geany-vte/src/vte.h	2010-12-14 02:11:47.786686074 -0800
+@@ -59,6 +59,7 @@ typedef struct
+ 	gchar *font;
+ 	GdkColor *colour_fore;
+ 	GdkColor *colour_back;
++    gboolean in_message_window;
+ } VteConfig;
+ extern VteConfig *vc;
+ 
