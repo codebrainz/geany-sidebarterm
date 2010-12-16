@@ -19,97 +19,44 @@
  * MA 02110-1301, USA.
  */
 
-/*
- * One "bug" I noticed but I'm not sure of why it happens is when Geany is
- * opened without the plugin enabled, then it's enabled, it's almost like it
- * presses Enter on the VTE so there are two lines.  
- * Pretty much a non-issue IMOP.
- */
-
 #include "geanyplugin.h"
+#include <vte/vte.h>
 
 GeanyPlugin     *geany_plugin;
 GeanyData       *geany_data;
 GeanyFunctions *geany_functions;
 
+#define ST_PLUGIN_NAME _("Sidebar Terminal")
+
 PLUGIN_VERSION_CHECK(147)
 
-PLUGIN_SET_INFO("Sidebar Terminal", "Move the VTE terminal into the sidebar.",
+PLUGIN_SET_INFO(ST_PLUGIN_NAME, _("Move the VTE terminal into the sidebar."),
                 "1.0", "Matthew Brush <mbrush@leftclick.ca>");
 
 static GtkNotebook *vte_old_home = NULL;
 static GtkNotebook *vte_new_home = NULL;
 static GtkWidget *vte_frame = NULL;
 static GtkWidget *vte_tab_label = NULL;
+static gboolean have_vte = FALSE;
 
-/*  todo: figure out how to find out if there's even a VTE builtin/enabled */
-/*
-typedef enum
-{
-    TERM_STATUS_OK=0,           // built with vte support and vte enabled
-    TERM_STATUS_DISABLED,       // built with vte support but vte disabled
-    TERM_STATUS_NOT_SUPPORTED   // not built with vte support
-
-} TerminalStatus;
-
-static TerminalStatus get_term_status(void)
-{
-    
-    GtkWidget *w;
-    
-    // this doesn't work, undefined symbol: ui_widgets
-    w = ui_lookup_widget(ui_widgets.prefs_dialog, "check_vte");
-    
-    if (w == NULL)
-        return TERM_STATUS_NOT_SUPPORTED;
-    
-    if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(w)))
-        return TERM_STATUS_DISABLED;
-
-    return TERM_STATUS_OK;
-}
-*/
-
-/* todo: what happens if there's no VTE? */
-static GtkWidget *get_vte_frame(void)
-{
-    GtkNotebook *nb;
-    nb = GTK_NOTEBOOK(geany_data->main_widgets->message_window_notebook);
-    return gtk_notebook_get_nth_page(nb, MSG_VTE);
-}
+static void show_error_message(void);
+static GtkWidget *get_vte_frame(void);
+static gboolean holds_vte(GtkWidget *frame);
 
 void plugin_init(GeanyData *data)
 {
-
-    /*
-    switch (get_term_status())
-    {
-        case TERM_STATUS_NOT_SUPPORTED:
-        {
-            dialogs_show_msgbox(GTK_MESSAGE_ERROR,
-                "Geany is not built with Terminal support making this plugin "
-                "pointless.");
-            return;
-        }
-        
-        case TERM_STATUS_DISABLED:
-        {
-            dialogs_show_msgbox(GTK_MESSAGE_WARNING,
-                "The Terminal is currently disabled, you need to enable it in "
-                "the preferences dialog to use this plugin.");
-            return;
-        }
-    }
-    */
-
     /* get a handle on the frame that holds the vte stuff */
     vte_frame = get_vte_frame();
     
-    if (vte_frame == NULL)
+    /* make sure it's really the frame holding the vte stuff */
+    if (vte_frame == NULL || !holds_vte(vte_frame))
     {
-        g_printerr("Geany does not contain a VTE terminal, bailing out.\n");
+        show_error_message();
         return;
     }
+    
+    /* set a flag for the cleanup function to use */
+    have_vte = TRUE;
     
     /* store where the vte frame is going to go */
     vte_new_home = GTK_NOTEBOOK(geany_data->main_widgets->sidebar_notebook);
@@ -130,21 +77,70 @@ void plugin_init(GeanyData *data)
     /* set the label again since it's gone somewhere */
     gtk_notebook_set_tab_label(vte_new_home, GTK_WIDGET(vte_frame), vte_tab_label);
     
-    /* select the new vte tab (last tab) in the sidebar */
+    /* select the new vte tab in the sidebar */
     gtk_notebook_set_current_page(vte_new_home, -1);
 }
 
 void plugin_cleanup(void)
 {
-    /* move the vte frame back to where it was before */
-    gtk_widget_reparent(vte_frame, GTK_WIDGET(vte_old_home)); 
+    if (have_vte)
+    {
+        /* move the vte frame back to where it was before */
+        gtk_widget_reparent(vte_frame, GTK_WIDGET(vte_old_home)); 
+        
+        /* put the label back in the old notebook */
+        gtk_notebook_set_tab_label(vte_old_home, vte_frame, vte_tab_label);
+        
+        /* we no longer to to hang on to a reference of the label */
+        g_object_unref(G_OBJECT(vte_tab_label));
+        
+        /* select the vte tab in the message window */
+        gtk_notebook_set_current_page(vte_old_home, MSG_VTE);
+    }
+}
+
+static void show_error_message(void)
+{
+    GtkWidget *dlg = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL,
+                        GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "%s %s", 
+                        ST_PLUGIN_NAME, _("Plugin"));
     
-    /* put the label back in the old notebook */
-    gtk_notebook_set_tab_label(vte_old_home, vte_frame, vte_tab_label);
+    gtk_message_dialog_format_secondary_markup(GTK_MESSAGE_DIALOG(dlg), "%s",
+        _("There is currently no terminal loaded in Geany.  Enable the terminal "
+        "in Geany's prefrences dialog and restart Geany to use the plugin "
+        "or disable the plugin to stop seeing this error message."));
     
-    /* we no longer to to hang on to a reference of the label */
-    g_object_unref(G_OBJECT(vte_tab_label));
-    
-    /* select the vte tab (last tab) in the message window */
-    gtk_notebook_set_current_page(vte_old_home, -1);
+    gtk_dialog_run(GTK_DIALOG(dlg));
+    gtk_widget_destroy(dlg);
+}
+
+/* find what should be the VTE notebook child (if the VTE is enabled) */
+static GtkWidget *get_vte_frame(void)
+{
+    GtkNotebook *nb;
+    nb = GTK_NOTEBOOK(geany_data->main_widgets->message_window_notebook);
+    return gtk_notebook_get_nth_page(nb, MSG_VTE);
+}
+
+/* kinda hacky, but it should work as long as the VTE packing doesn't change */
+static gboolean holds_vte(GtkWidget *frame)
+{
+    if (GTK_IS_FRAME(frame))
+    {
+        GtkContainer *hbox;
+        GList *list, *children;
+        hbox = GTK_CONTAINER(gtk_bin_get_child(GTK_BIN(frame)));
+        children = gtk_container_get_children(hbox);
+        for (list=children; list; list=g_list_next(list))
+        {
+            GtkWidget *w = GTK_WIDGET(list->data);
+            if (VTE_IS_TERMINAL(w))
+            {
+                g_list_free(children);
+                return TRUE;
+            }
+        }
+        g_list_free(children);
+    }
+    return FALSE;
 }
