@@ -99,6 +99,7 @@ void plugin_cleanup(void)
     }
 }
 
+/* for when the vte cannot be located */
 static void show_error_message(void)
 {
     GtkWidget *dlg = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL,
@@ -122,25 +123,24 @@ static GtkWidget *get_vte_frame(void)
     return gtk_notebook_get_nth_page(nb, MSG_VTE);
 }
 
-/* kinda hacky, but it should work as long as the VTE packing doesn't change */
-static gboolean holds_vte(GtkWidget *frame)
+/* locate vte anywhere at or below widget */
+static gboolean holds_vte(GtkWidget *widget)
 {
-    if (GTK_IS_FRAME(frame))
+    gboolean found = FALSE;
+    
+    if (VTE_IS_TERMINAL(widget))
+        found = TRUE;
+    else if (GTK_IS_CONTAINER(widget))
     {
-        GtkContainer *hbox;
-        GList *list, *children;
-        hbox = GTK_CONTAINER(gtk_bin_get_child(GTK_BIN(frame)));
-        children = gtk_container_get_children(hbox);
-        for (list=children; list; list=g_list_next(list))
-        {
-            GtkWidget *w = GTK_WIDGET(list->data);
-            if (VTE_IS_TERMINAL(w))
-            {
-                g_list_free(children);
-                return TRUE;
-            }
-        }
+        GList *children, *iter;
+        
+        children = gtk_container_get_children(GTK_CONTAINER(widget));
+        
+        for (iter=children; !found && iter; iter=g_list_next(iter))
+            found = holds_vte(iter->data);
+            
         g_list_free(children);
     }
-    return FALSE;
+    
+    return found;
 }
