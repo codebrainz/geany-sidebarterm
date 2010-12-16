@@ -30,7 +30,7 @@
 
 GeanyPlugin     *geany_plugin;
 GeanyData       *geany_data;
-GeanyFunctions  *geany_functions;
+GeanyFunctions *geany_functions;
 
 PLUGIN_VERSION_CHECK(147)
 
@@ -42,42 +42,66 @@ static GtkNotebook *vte_new_home = NULL;
 static GtkWidget *vte_frame = NULL;
 static GtkWidget *vte_tab_label = NULL;
 
-/* 
- * is it better to add:
- *      ui_hookup_widget(main_widgets.window, frame, "vte_frame");
- * to the create_vte() function in vte.c (~ line 244) ?
- */
+/*  todo: figure out how to find out if there's even a VTE builtin/enabled */
+/*
+typedef enum
+{
+    TERM_STATUS_OK=0,           // built with vte support and vte enabled
+    TERM_STATUS_DISABLED,       // built with vte support but vte disabled
+    TERM_STATUS_NOT_SUPPORTED   // not built with vte support
+
+} TerminalStatus;
+
+static TerminalStatus get_term_status(void)
+{
+    
+    GtkWidget *w;
+    
+    // this doesn't work, undefined symbol: ui_widgets
+    w = ui_lookup_widget(ui_widgets.prefs_dialog, "check_vte");
+    
+    if (w == NULL)
+        return TERM_STATUS_NOT_SUPPORTED;
+    
+    if (!gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(w)))
+        return TERM_STATUS_DISABLED;
+
+    return TERM_STATUS_OK;
+}
+*/
+
+/* todo: what happens if there's no VTE? */
 static GtkWidget *get_vte_frame(void)
 {
-#ifdef VTE_HOOKUP_PATCH
-    /*
-     * run this code if vte.c is patched to add:
-     *      ui_hookup_widget(main_widgets.window, frame, "vte_frame");
-     * to the create_vte() function (see vte-hookup.patch).
-     */
-    return ui_lookup_widget(
-                    geany_data->main_widgets->window, 
-                    "vte_frame");
-#else
-    /* in theory, the Terminal tab should be the last tab */
-    GtkWidget *vfra = gtk_notebook_get_nth_page(
-                GTK_NOTEBOOK(
-                    geany_data->main_widgets->message_window_notebook), -1);
-    /* get the label of the assumed Terminal tab */
-    const gchar *labeltxt = gtk_notebook_get_tab_label_text(
-                                GTK_NOTEBOOK(geany_data->main_widgets->message_window_notebook), 
-                                vfra);
-    /* check if we have the wrong tab (hacky?) */
-    if (g_strcmp0(labeltxt, "Terminal") != 0)
-        return NULL;
-        
-    return vfra;
-#endif
+    GtkNotebook *nb;
+    nb = GTK_NOTEBOOK(geany_data->main_widgets->message_window_notebook);
+    return gtk_notebook_get_nth_page(nb, MSG_VTE);
 }
 
 void plugin_init(GeanyData *data)
 {
+
+    /*
+    switch (get_term_status())
+    {
+        case TERM_STATUS_NOT_SUPPORTED:
+        {
+            dialogs_show_msgbox(GTK_MESSAGE_ERROR,
+                "Geany is not built with Terminal support making this plugin "
+                "pointless.");
+            return;
+        }
         
+        case TERM_STATUS_DISABLED:
+        {
+            dialogs_show_msgbox(GTK_MESSAGE_WARNING,
+                "The Terminal is currently disabled, you need to enable it in "
+                "the preferences dialog to use this plugin.");
+            return;
+        }
+    }
+    */
+
     /* get a handle on the frame that holds the vte stuff */
     vte_frame = get_vte_frame();
     
